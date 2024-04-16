@@ -30,11 +30,11 @@ class HoltWintersExponentialSmoothing {
             alpha: 0,
             beta: 0,
             gamma: 0,
-            phi: 1, /// 1 === no dampening
+            phi: 0.98,
             alphaBounds: [0, 1],
             betaBounds: [0, 1],
             gammaBounds: [0, 1],
-            phiBounds: [0, 1],
+            phiBounds: [0.8, 0.98],
             removeBias: false,
             ...$parameters
         };
@@ -518,20 +518,34 @@ class HoltWintersExponentialSmoothing {
     ) {
 
         const $boundsCenter = this.$$variableCenter($bounds);
+
+        /// {update} tan fn goes to infinity at bounds however outside of the bounds
+        /// the slope is flat thus the optimizer will not be able to "fall" towards the bounds
+        // const $variableNormalizedToOrigin = $variable
+        //     .sub($boundsCenter + $bounds[0])
+        //     .div($boundsCenter);
+
+        // tf.scalar(8).sub($boundsCenter + $bounds[0]).div($boundsCenter).abs().exp()
+            
+        /// exponential of proportion of normalized parameter of max safe 32 bit float
+        return $variable.sub($boundsCenter + $bounds[0]).div($boundsCenter).div(3.4028235 * 1038).abs().exp().mul(
+                this.$parameters.regularizerAlpha /// alpha
+            );
         
-        return tf.abs(
-            tf.tan(
-                /// this fn is asymtotic at the parameter boundaries but is defined outside
-                /// of them so need to clip to boudnaries if exceeds them
-                $variable.clipByValue(...$bounds).sub($boundsCenter + $bounds[0])
-                .div($boundsCenter)
-                .mul(
-                    Math.PI / 2
-                )
-            )
-        ).mul(
-            this.$parameters.regularizerAlpha /// alpha
-        );
+            
+        // return tf.abs(
+        //     tf.tan(
+        //         /// this fn is asymtotic at the parameter boundaries but is defined outside
+        //         /// of them so need to clip to boudnaries if exceeds them
+        //         $variable.clipByValue(...$bounds).sub($boundsCenter + $bounds[0])
+        //         .div($boundsCenter)
+        //         .mul(
+        //             Math.PI / 2
+        //         )
+        //     )
+        // ).mul(
+        //     this.$parameters.regularizerAlpha /// alpha
+        // );
 
     }
     
