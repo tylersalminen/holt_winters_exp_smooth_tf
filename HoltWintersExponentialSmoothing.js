@@ -30,11 +30,11 @@ class HoltWintersExponentialSmoothing {
             alpha: 0,
             beta: 0,
             gamma: 0,
-            phi: 1, /// 1 === no dampening
+            phi: 0.98,
             alphaBounds: [0, 1],
             betaBounds: [0, 1],
             gammaBounds: [0, 1],
-            phiBounds: [0, 1],
+            phiBounds: [0.8, 0.98],
             removeBias: false,
             ...$parameters
         };
@@ -518,20 +518,34 @@ class HoltWintersExponentialSmoothing {
     ) {
 
         const $boundsCenter = this.$$variableCenter($bounds);
+
+        /// {update} tan fn goes to infinity at bounds however outside of the bounds
+        /// the slope is flat thus the optimizer will not be able to "fall" towards the bounds
+        // const $variableNormalizedToOrigin = $variable
+        //     .sub($boundsCenter + $bounds[0])
+        //     .div($boundsCenter);
+
+        // tf.scalar(8).sub($boundsCenter + $bounds[0]).div($boundsCenter).abs().exp()
+            
+        /// exponential of proportion of normalized parameter of max safe 32 bit float
+        return $variable.sub($boundsCenter + $bounds[0]).div($boundsCenter).div(3.4028235 * 1038).abs().exp().mul(
+                this.$parameters.regularizerAlpha /// alpha
+            );
         
-        return tf.abs(
-            tf.tan(
-                /// this fn is asymtotic at the parameter boundaries but is defined outside
-                /// of them so need to clip to boudnaries if exceeds them
-                $variable.clipByValue(...$bounds).sub($boundsCenter + $bounds[0])
-                .div($boundsCenter)
-                .mul(
-                    Math.PI / 2
-                )
-            )
-        ).mul(
-            this.$parameters.regularizerAlpha /// alpha
-        );
+            
+        // return tf.abs(
+        //     tf.tan(
+        //         /// this fn is asymtotic at the parameter boundaries but is defined outside
+        //         /// of them so need to clip to boudnaries if exceeds them
+        //         $variable.clipByValue(...$bounds).sub($boundsCenter + $bounds[0])
+        //         .div($boundsCenter)
+        //         .mul(
+        //             Math.PI / 2
+        //         )
+        //     )
+        // ).mul(
+        //     this.$parameters.regularizerAlpha /// alpha
+        // );
 
     }
     
@@ -672,7 +686,7 @@ class HoltWintersExponentialSmoothing {
         }
         else {
 
-            if(this.$observations.length < 2 * this.$parameters.seasonalPeriods){
+            if(this.$observations < 2 * this.$parameters.seasonalPeriods){
 
                 throw new Error("there must be at least 2 full seasons of observations to compute simple initializers");
 
@@ -922,7 +936,7 @@ class HoltWintersExponentialSmoothing {
                         $levelSeasonalComponent = $seasoned($levelSeasonalComponent, $seasonals[i - 1].mul($alphaV).transpose()); /// y_alpha[i - 1] - (alpha * s[i - 1]) + ... 
                     }
                     else if($seasonalProcess === 2){
-                        $levelSeasonalComponent = $seasoned($levelSeasonalComponent, $seasonals[i - 1]); /// y_alpha[i - 1] / s[i - 1] + ... 
+                        $levelSeasonalComponent = $seasoned($levelSeasonalComponent, $seasonals[i - 1].reshape([$batchSize, 1])); /// y_alpha[i - 1] / s[i - 1] + ... 
                     }
 
                     $level = $levelSeasonalComponent.add($levelTrendComponent.mul($alphaCV).transpose()).reshape([$batchSize]); /// y_alpha[i - 1] + ...
@@ -950,7 +964,7 @@ class HoltWintersExponentialSmoothing {
                             $seasonalComponent = $seasoned($seasonalComponent, $levelTrendComponent.mul($gammaV).transpose()); /// y_gamma[i - 1] - (gamma * trended(lvls[i - 1], dampen(b[i - 1], phi))) ... 
                         }
                         else if($seasonalProcess === 2){
-                            $seasonalComponent = $seasoned($seasonalComponent, $levelTrendComponent);
+                            $seasonalComponent = $seasoned($seasonalComponent, $levelTrendComponent.reshape([$batchSize, 1]));
                         }
 
                         $seasonal = $seasonalComponent.add($seasonals[i - 1].mul($gammaCV).transpose()).reshape([$batchSize]); // s[i + m - 1] = ... + 
